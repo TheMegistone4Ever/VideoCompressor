@@ -1,13 +1,37 @@
 import logging
+from json import loads
 from os import walk
 from pathlib import Path
 from shutil import copy2
-from subprocess import run
+from subprocess import run, PIPE
 from typing import List, Tuple
 
 
 def sanitize_filename(filename: str) -> str:
     return filename.replace(" ", "_")
+
+
+def get_video_resolution(video_path: str) -> Tuple[int, int]:
+    """Get the width and height of a video file using ffprobe."""
+    try:
+        cmd = [
+            "ffprobe",
+            "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=width,height",
+            "-of", "json",
+            str(video_path)
+        ]
+
+        result = run(cmd, stdout=PIPE, stderr=PIPE, text=True)
+
+        if result.returncode != 0:
+            raise RuntimeError(f"ffprobe error: {result.stderr}")
+
+        stream = loads(result.stdout)["streams"][0]
+        return stream["width"], stream["height"]
+    except Exception as e:
+        raise RuntimeError(f"Error getting video resolution: {str(e)}")
 
 
 class VideoCompressor:
@@ -48,11 +72,20 @@ class VideoCompressor:
         try:
             output_path = output_path.with_suffix(".mp4")
 
+            try:
+                width, height = get_video_resolution(str(input_path))
+                scale_filter = "1920:1080" if width > 1920 or height > 1080 else "iw:ih"
+                self.logger.info(f"Original resolution for {input_path}: {width}x{height}")
+                self.logger.info(f"Using scale filter: {scale_filter}")
+            except Exception as e:
+                self.logger.warning(f"Could not get resolution for {input_path}, using original: {str(e)}")
+                scale_filter = "iw:ih"
+
             ffmpeg_cmd = [
                 "ffmpeg",
                 "-i", str(input_path),
                 "-vcodec", "libx265",
-                "-vf", "scale=1920:1080",
+                "-vf", f"scale={scale_filter}",
                 "-r", "30",
                 "-y",
                 str(output_path)
