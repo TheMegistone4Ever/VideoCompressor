@@ -12,7 +12,6 @@ def sanitize_filename(filename: str) -> str:
 
 
 def get_video_resolution(video_path: str) -> Tuple[int, int]:
-    """Get the width and height of a video file using ffprobe."""
     try:
         cmd = [
             "ffprobe",
