@@ -1,4 +1,5 @@
 # User-specific files
+test*/
 .log
 
 # Byte-compiled / optimized / DLL files

@@ -184,4 +184,5 @@ def main():
 
 
 if __name__ == "__main__":
+    # python video_compressor.py "absolute-path" --debug
     main()
