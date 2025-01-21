@@ -48,7 +48,7 @@ class VideoCompressor:
         )
         self.logger = logging.getLogger(__name__)
 
-        self.video_extensions = {".mp4", ".mkv"}
+        self.video_extensions = {".mp4", ".mkv", ".avi", ".mov", ".flv", ".wmv"}
 
     def create_directory_structure(self) -> None:
         try:
