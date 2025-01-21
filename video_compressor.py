@@ -1,15 +1,13 @@
 import logging
 from json import loads
-from os import walk
+from os import walk, rename
 from pathlib import Path
 from subprocess import run, PIPE
-from typing import List, Tuple
+from typing import Tuple, Dict, Set
 
 
 def sanitize_filename(filename: str) -> str:
     return filename.replace(" ", "_")
-
-
 
 
 def get_video_resolution(video_path: str) -> Tuple[int, int]:
@@ -38,6 +36,7 @@ class VideoCompressor:
     def __init__(self, input_dir: str, log_level: int = logging.INFO):
         self.input_dir = Path(input_dir)
         self.output_dir = Path(f"{input_dir}_compressed")
+        self.filename_mapping: Dict[Path, str] = dict()
 
         logging.basicConfig(
             level=log_level,
@@ -66,6 +65,16 @@ class VideoCompressor:
         except Exception as e:
             self.logger.error(f"Error creating directory structure: {str(e)}")
             raise
+
+    def restore_original_filename(self, output_path: Path) -> None:
+        try:
+            if output_path in self.filename_mapping:
+                new_path = output_path.parent / f"{self.filename_mapping[output_path]}.mp4"
+                rename(output_path, new_path)
+                self.logger.info(f"Restored original filename: {new_path}")
+                del self.filename_mapping[output_path]
+        except Exception as e:
+            self.logger.error(f"Error restoring original filename for {output_path}: {str(e)}")
 
     def process_video(self, input_path: Path, output_path: Path) -> bool:
         try:
@@ -96,6 +105,7 @@ class VideoCompressor:
                 self.logger.error(f"FFmpeg error for {input_path}: {result.stderr}")
                 return False
 
+            self.restore_original_filename(output_path)
             self.logger.info(f"Successfully processed: {input_path}")
             return True
 
@@ -103,16 +113,17 @@ class VideoCompressor:
             self.logger.error(f"Error processing {input_path}: {str(e)}")
             return False
 
-    def find_video_files(self) -> List[Tuple[Path, Path]]:
-        return [
-            (
-                Path(dir_path) / file,
-                self.output_dir / Path(dir_path).relative_to(self.input_dir) / sanitize_filename(file)
-            )
-            for dir_path, _, files in walk(self.input_dir)
-            for file in files
-            if Path(file).suffix.lower() in self.video_extensions
-        ]
+    def find_video_files(self) -> Set[Tuple[Path, Path]]:
+        video_files = set()
+        for dir_path, _, files in walk(self.input_dir):
+            for file in files:
+                if Path(file).suffix.lower() in self.video_extensions:
+                    input_file = Path(dir_path) / file
+                    sanitized_file = sanitize_filename(file)
+                    output_file = self.output_dir / Path(dir_path).relative_to(self.input_dir) / sanitized_file
+                    self.filename_mapping[output_file.with_suffix(".mp4")] = Path(file).stem
+                    video_files.add((input_file, output_file))
+        return video_files
 
     def process_all_videos(self) -> None:
         try:
@@ -142,7 +153,7 @@ class VideoCompressor:
             raise
 
 
-def main():
+def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(description="Video Processing Script")
