@@ -2,13 +2,14 @@ import logging
 from json import loads
 from os import walk
 from pathlib import Path
-from shutil import copy2
 from subprocess import run, PIPE
 from typing import List, Tuple
 
 
 def sanitize_filename(filename: str) -> str:
     return filename.replace(" ", "_")
+
+
 
 
 def get_video_resolution(video_path: str) -> Tuple[int, int]:
@@ -58,8 +59,7 @@ class VideoCompressor:
             self.output_dir.mkdir(parents=True, exist_ok=True)
 
             for dir_path, _, _ in walk(self.input_dir):
-                relative_path = Path(dir_path).relative_to(self.input_dir)
-                new_dir = self.output_dir / relative_path
+                new_dir = self.output_dir / Path(dir_path).relative_to(self.input_dir)
                 new_dir.mkdir(parents=True, exist_ok=True)
                 self.logger.info(f"Created directory: {new_dir}")
 
@@ -90,11 +90,7 @@ class VideoCompressor:
                 str(output_path)
             ]
 
-            result = run(
-                ffmpeg_cmd,
-                capture_output=True,
-                text=True
-            )
+            result = run(ffmpeg_cmd, capture_output=True, text=True)
 
             if result.returncode != 0:
                 self.logger.error(f"FFmpeg error for {input_path}: {result.stderr}")
@@ -108,49 +104,34 @@ class VideoCompressor:
             return False
 
     def find_video_files(self) -> List[Tuple[Path, Path]]:
-        video_files = []
-
-        for dir_path, _, files in walk(self.input_dir):
-            dir_path = Path(dir_path)
-            relative_path = dir_path.relative_to(self.input_dir)
-
-            for file in files:
-                if Path(file).suffix.lower() in self.video_extensions:
-                    input_path = dir_path / file
-                    output_path = self.output_dir / relative_path / file
-                    video_files.append((input_path, output_path))
-
-        return video_files
+        return [
+            (
+                Path(dir_path) / file,
+                self.output_dir / Path(dir_path).relative_to(self.input_dir) / sanitize_filename(file)
+            )
+            for dir_path, _, files in walk(self.input_dir)
+            for file in files
+            if Path(file).suffix.lower() in self.video_extensions
+        ]
 
     def process_all_videos(self) -> None:
         try:
-            self.create_directory_structure()
             video_files = self.find_video_files()
 
             if not video_files:
-                self.logger.warning("No video files found in input directory")
+                self.logger.warning(f"No video files found in input directory. "
+                                    f"Extensions supported: {self.video_extensions}")
                 return
 
             self.logger.info(f"Found {len(video_files)} video files to process")
 
+            self.create_directory_structure()
             for input_path, output_path in video_files:
                 try:
-                    temp_input = input_path.with_name(sanitize_filename(input_path.name))
-                    temp_output = output_path.with_name(sanitize_filename(output_path.name))
+                    success = self.process_video(input_path, output_path)
 
-                    if " " in input_path.name:
-                        copy2(input_path, temp_input)
-                    else:
-                        temp_input = input_path
-
-                    success = self.process_video(temp_input, temp_output)
-
-                    if success:
-                        if " " in output_path.name:
-                            temp_output.rename(output_path)
-
-                    if temp_input != input_path and temp_input.exists():
-                        temp_input.unlink()
+                    if not success:
+                        self.logger.error(f"Failed to process {input_path}")
 
                 except Exception as e:
                     self.logger.error(f"Error processing {input_path}: {str(e)}")
