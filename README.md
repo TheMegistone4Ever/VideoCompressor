@@ -143,7 +143,7 @@ python video_compressor.py /path/to/videos
 
 ### 5.1 Core Components
 
-- `video_compressor.py`: Main script containing the VideoProcessor class and processing logic
+- `video_compressor.py`: Main script containing the VideoCompressor class and processing logic
 - `video_processing.log`: Detailed processing log file with operation history
 - `LICENSE.md`: CC BY-NC 4.0 license details
 - `README.md`: Project documentation
@@ -151,7 +151,7 @@ python video_compressor.py /path/to/videos
 ### 5.2 File Organization
 
 ```
-video-processor/
+VideoCompressor/
 ├── video_compressor.py
 ├── README.md
 ├── LICENSE.md
