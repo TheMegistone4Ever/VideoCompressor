@@ -77,8 +77,8 @@ def get_video_resolution(video_path: str) -> Tuple[int, int]:
         raise RuntimeError(f"Error getting video resolution: {str(e)}")
 
 
-def process_video(args: Tuple[Path, Path, Dict[Path, str], Queue, int]) -> bool:
-    input_path, output_path, filename_mapping, log_queue, log_level = args
+def process_video(args: Tuple[Path, Path, Dict[Path, str], Queue, int, Tuple[int, int]]) -> bool:
+    input_path, output_path, filename_mapping, log_queue, log_level, maxsize = args
     logger = setup_logger(log_queue, log_level)
 
     try:
@@ -86,9 +86,24 @@ def process_video(args: Tuple[Path, Path, Dict[Path, str], Queue, int]) -> bool:
 
         try:
             width, height = get_video_resolution(str(input_path))
-            scale_filter = "1920:1080" if width > 1920 or height > 1080 else "iw:ih"
-            logger.info(f"Original resolution for {input_path}: {width}x{height}")
-            logger.info(f"Using scale filter: {scale_filter}")
+            max_width, max_height = maxsize
+
+            if width > max_width or height > max_height:
+                aspect_ratio = width / height
+
+                if width / max_width > height / max_height:
+                    new_width = max_width
+                    new_height = int(max_width / aspect_ratio)
+                else:
+                    new_height = max_height
+                    new_width = int(max_height * aspect_ratio)
+
+                scale_filter = f"{new_width}:{new_height}"
+                logger.info(f"Resizing video from {width}x{height} to {new_width}x{new_height}")
+            else:
+                scale_filter = "iw:ih"
+                logger.info(f"Keeping original resolution: {width}x{height}")
+
         except Exception as e:
             logger.warning(f"Could not get resolution for {input_path}, using original: {str(e)}")
             scale_filter = "iw:ih"
@@ -123,12 +138,14 @@ def process_video(args: Tuple[Path, Path, Dict[Path, str], Queue, int]) -> bool:
 
 
 class VideoCompressor:
-    def __init__(self, input_dir: str, processes: int = None, log_level: int = logging.INFO):
+    def __init__(self, input_dir: str, processes: int = None, log_level: int = logging.INFO,
+                 maxsize: Tuple[int, int] = (1920, 1080)):
         self.input_dir = Path(input_dir)
         self.output_dir = Path(f"{input_dir}_compressed")
         self.filename_mapping: Dict[Path, str] = dict()
         self.processes = processes if processes is not None else cpu_count()
         self.log_level = log_level
+        self.maxsize = maxsize
         self.log_queue = Manager().Queue()
 
         self.log_file = path.join(path.dirname(path.abspath(input_dir)), "video_processing.log")
@@ -137,6 +154,11 @@ class VideoCompressor:
             raise TypeError("processes parameter must be an integer")
         if self.processes < 1:
             raise ValueError("processes parameter must be greater than or equal to 1")
+        if not isinstance(self.maxsize, tuple) or len(self.maxsize) != 2 or not all(
+                isinstance(x, int) for x in self.maxsize):
+            raise ValueError("maxsize must be a tuple of two integers")
+        if any(x <= 0 for x in self.maxsize):
+            raise ValueError("maxsize dimensions must be positive integers")
 
         self.logger_process = Process(
             target=logger_process,
@@ -186,11 +208,14 @@ class VideoCompressor:
 
             self.logger.info(f"Found {len(video_files)} video files to process")
             self.logger.info(f"Using {self.processes} processes for processing")
+            self.logger.info(f"Maximum resolution set to {self.maxsize[0]}x{self.maxsize[1]}")
 
             self.create_directory_structure()
 
-            process_args = [(input_path, output_path, self.filename_mapping, self.log_queue, self.log_level)
-                            for input_path, output_path in video_files]
+            process_args = [
+                (input_path, output_path, self.filename_mapping, self.log_queue, self.log_level, self.maxsize)
+                for input_path, output_path in video_files
+            ]
 
             with Pool(processes=self.processes) as pool:
                 results = pool.map(process_video, process_args)
@@ -215,13 +240,18 @@ def main() -> None:
     parser.add_argument("--processes", type=int, default=1,
                         help="Number of processing processes (default: 1). Use None for all available CPUs")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
+    parser.add_argument("--maxwidth", type=int, default=1920,
+                        help="Maximum width of output videos (default: 1920)")
+    parser.add_argument("--maxheight", type=int, default=1080,
+                        help="Maximum height of output videos (default: 1080)")
 
     args = parser.parse_args()
 
     processor = VideoCompressor(
         args.input_dir,
         processes=args.processes,
-        log_level=logging.DEBUG if args.debug else logging.INFO
+        log_level=logging.DEBUG if args.debug else logging.INFO,
+        maxsize=(args.maxwidth, args.maxheight)
     )
 
     try:
@@ -233,5 +263,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    # e.g.: python video_compressor.py "absolute-path" --processes 4 --debug
+    # e.g.: python video_compressor.py "absolute-path" --processes 4 --debug --maxwidth 1280 --maxheight 720
     main()
