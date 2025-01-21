@@ -156,8 +156,7 @@ video-processor/
 ├── README.md
 ├── LICENSE.md
 ├── .gitignore
-└── logs/
-    └── video_processing.log
+└── video_processing.log
 ```
 
 ## 6. Technical Details
